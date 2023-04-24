@@ -91,6 +91,16 @@ locals {
   # ECS task definition
   latest_task_definition_rev = var.external_task_definition_updates ? max(aws_ecs_task_definition.atlantis.revision, data.aws_ecs_task_definition.atlantis[0].revision) : aws_ecs_task_definition.atlantis.revision
 
+  log_configuration = var.custom_log_configuration != null ? var.custom_log_configuration : {
+    logDriver = "awslogs"
+    options = {
+      awslogs-region        = data.aws_region.current.name
+      awslogs-group         = aws_cloudwatch_log_group.atlantis[0].name
+      awslogs-stream-prefix = "ecs"
+    }
+    secretOptions = []
+  }
+
   # Secret access tokens
   container_definition_secrets_1 = local.secret_name_key != "" && local.secret_name_value_from != "" ? [
     {
@@ -114,7 +124,11 @@ locals {
     var.tags,
   )
 
-  policies_arn = var.policies_arn != null ? var.policies_arn : ["arn:${data.aws_partition.current.partition}:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy"]
+  default_policies = [
+    "arn:${data.aws_partition.current.partition}:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy"
+  ]
+
+  policies_arn = var.policies_arn != null ? var.policies_arn : local.default_policies
 
   # Chunk these into groups of 5, the limit for IPs in an AWS lb listener
   whitelist_unauthenticated_cidr_block_chunks = chunklist(
@@ -557,10 +571,10 @@ resource "aws_iam_role" "ecs_task_execution" {
 }
 
 resource "aws_iam_role_policy_attachment" "ecs_task_execution" {
-  for_each = toset(local.policies_arn)
+  count = length(local.policies_arn)
 
   role       = aws_iam_role.ecs_task_execution.id
-  policy_arn = each.value
+  policy_arn = local.policies_arn[count.index]
 }
 
 # ref: https://docs.aws.amazon.com/AmazonECS/latest/developerguide/specifying-sensitive-data.html
@@ -649,15 +663,8 @@ module "container_definition_github_gitlab" {
     },
   ]
 
-  log_configuration = {
-    logDriver = "awslogs"
-    options = {
-      awslogs-region        = data.aws_region.current.name
-      awslogs-group         = aws_cloudwatch_log_group.atlantis.name
-      awslogs-stream-prefix = "ecs"
-    }
-    secretOptions = []
-  }
+  log_configuration = local.log_configuration
+
   firelens_configuration = var.firelens_configuration
 
   environment = concat(
@@ -706,15 +713,8 @@ module "container_definition_bitbucket" {
     },
   ]
 
-  log_configuration = {
-    logDriver = "awslogs"
-    options = {
-      awslogs-region        = data.aws_region.current.name
-      awslogs-group         = aws_cloudwatch_log_group.atlantis.name
-      awslogs-stream-prefix = "ecs"
-    }
-    secretOptions = []
-  }
+  log_configuration = local.log_configuration
+
   firelens_configuration = var.firelens_configuration
 
   environment = concat(
@@ -837,6 +837,8 @@ resource "aws_ecs_service" "atlantis" {
 # Cloudwatch logs
 ################################################################################
 resource "aws_cloudwatch_log_group" "atlantis" {
+  count = var.custom_log_configuration != null ? 0 : 1
+
   name              = var.name
   retention_in_days = var.cloudwatch_log_retention_in_days
   kms_key_id        = var.cloudwatch_logs_kms_key_id
