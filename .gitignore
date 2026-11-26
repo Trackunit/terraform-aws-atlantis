@@ -27,3 +27,7 @@ override.tf.json
 # Ignore CLI configuration files
 .terraformrc
 terraform.rc
+
+# Local environment and agent notes; never committed.
+.env
+**/*.local.md

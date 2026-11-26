@@ -1,0 +1,5 @@
+[copy]
+    include = .env
+    include = .env.local
+    include = *.local.md
+    include = .claude/*.local.md
